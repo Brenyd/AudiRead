@@ -124,7 +124,7 @@ private fun ZoomablePage(state: PagedReaderState, onTapZone: (Int) -> Unit, cont
                     },
                     onTap = { pos ->
                         val w = size.width
-                        onTapZone(if (pos.x < w * 0.25f) 0 else if (pos.x > w * 0.75f) 2 else 1)
+                        onTapZone(if (pos.x < w * 0.3f) 0 else if (pos.x > w * 0.7f) 2 else 1)
                     },
                 )
             }

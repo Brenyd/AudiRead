@@ -11,6 +11,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -142,13 +143,16 @@ private fun Book.bookmarkNear(pos: ReadPosition, pageSpan: Double): Bookmark? =
 private fun ReaderContent(book: Book, ebook: EbookInfo, audioOn: Boolean, onBack: () -> Unit, onOpenPlayer: () -> Unit) {
     val ctx = LocalContext.current
     val latest by rememberUpdatedState(book)
-    val settings by SettingsStore.reader.collectAsState()
+    val savedSettings by SettingsStore.reader.collectAsState()
+    val systemDark = isSystemInDarkTheme()
+    val settings = savedSettings.effective(systemDark)
     val player by PlayerConnection.state.collectAsState()
     val scope = rememberCoroutineScope()
 
     val initial = remember(book.id) { initialPosition(book, ebook, audioOn) }
     var position by remember(book.id) { mutableStateOf(initial) }
-    var controls by remember { mutableStateOf(false) }
+    // Show the menu when a book opens so it's obvious where everything is.
+    var controls by remember { mutableStateOf(true) }
     var follow by remember { mutableStateOf(true) }
     var showContents by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -392,6 +396,8 @@ private fun ReaderContent(book: Book, ebook: EbookInfo, audioOn: Boolean, onBack
                 enter = fadeIn() + slideInVertically { it }, exit = fadeOut() + slideOutVertically { it },
             ) {
                 BottomBar(
+                    showHint = !savedSettings.seenTapHint,
+                    onHintSeen = { SettingsStore.setReader(SettingsStore.reader.value.copy(seenTapHint = true)) },
                     global = position.global,
                     chapterTitle = chapterTitle,
                     info = info,
@@ -476,7 +482,7 @@ private fun ReaderContent(book: Book, ebook: EbookInfo, audioOn: Boolean, onBack
     }
     if (showSettings) {
         ModalBottomSheet(onDismissRequest = { showSettings = false }, scrimColor = Color.Transparent) {
-            ReaderSettingsPanel(settings, ebook.fixedLayout) { SettingsStore.setReader(it) }
+            ReaderSettingsPanel(savedSettings.copy(theme = settings.theme), ebook.fixedLayout) { SettingsStore.setReader(it) }
         }
     }
     if (showSyncPoints) SyncPointsDialog(book) { showSyncPoints = false }
@@ -494,6 +500,8 @@ private fun pagedTaps(handle: ReaderHandle, toggle: () -> Unit, onUserTurn: () -
 
 @Composable
 private fun BottomBar(
+    showHint: Boolean,
+    onHintSeen: () -> Unit,
     global: Double,
     chapterTitle: String,
     info: PageInfo,
@@ -510,6 +518,20 @@ private fun BottomBar(
             Modifier.fillMaxWidth().then(if (padNav) Modifier.navigationBarsPadding() else Modifier)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
+            if (showHint) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                        .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Tap the right edge for the next page, the left edge to go back, and the middle to show or hide this menu.",
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onHintSeen) { Text("Got it") }
+                }
+            }
             val d = drag
             val headline = when {
                 d != null && info.total > 0 -> "Page ${(d * info.total).roundToInt().coerceIn(1, info.total)} of ${info.total}"

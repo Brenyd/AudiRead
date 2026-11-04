@@ -3,23 +3,17 @@ package com.brenyd.audiread.ui.reader
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.view.GestureDetector
 import android.view.MotionEvent
-import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -30,30 +24,19 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.viewinterop.AndroidView
 import com.brenyd.audiread.data.EbookInfo
 import com.brenyd.audiread.data.ReadPosition
 import com.brenyd.audiread.data.ReaderSettings
 import com.brenyd.audiread.data.TocEntry
-import com.brenyd.audiread.data.TurnStyle
 import com.brenyd.audiread.sync.SyncMapper
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.io.File
 import java.util.Locale
-import kotlin.coroutines.resume
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
-import kotlin.math.sin
 
 data class PageInfo(val page: Int, val total: Int, val leftInChapter: Int)
 
@@ -94,64 +77,51 @@ fun readerConfig(s: ReaderSettings): String = JSONObject().apply {
     put("override", s.theme.dark)
 }.toString()
 
-/** WebView that hands horizontal drags to the page-turn engine and everything else (taps, selection) to the page. */
+/**
+ * WebView that turns taps and swipes into page turns:
+ * left edge = back, right edge = forward, middle (or top/bottom strip) = show/hide the menu.
+ */
 @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
 class ReaderWebView(ctx: Context) : WebView(ctx) {
-    interface Turner {
-        fun dragStart(dir: Int, x: Float, y: Float): Boolean
-        fun drag(x: Float, y: Float)
-        fun dragEnd(x: Float, y: Float, vx: Float)
-    }
-
-    var turner: Turner? = null
+    /** zone: 0 = left (back), 1 = middle (menu), 2 = right (forward) */
+    var onTapZone: (Int) -> Unit = {}
+    /** dir: +1 forward, -1 back */
+    var onSwipe: (Int) -> Unit = {}
     var paged = true
     private val slop = ViewConfiguration.get(ctx).scaledTouchSlop * 2
     private var downX = 0f
     private var downY = 0f
-    private var dragging = false
-    private var rejected = false
-    private var tracker: VelocityTracker? = null
+    private var swiped = false
+
+    private val gestures = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onSingleTapUp(e: MotionEvent): Boolean {
+            val type = hitTestResult.type
+            if (type == HitTestResult.SRC_ANCHOR_TYPE || type == HitTestResult.SRC_IMAGE_ANCHOR_TYPE) return false
+            val w = width.toFloat()
+            val h = height.toFloat()
+            val zone = when {
+                e.x < w * 0.3f -> 0
+                e.x > w * 0.7f -> 2
+                else -> 1
+            }
+            onTapZone(if (zone != 1 && (e.y < h * 0.08f)) 1 else zone)
+            return true
+        }
+    })
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        val t = turner
-        if (!paged || t == null) return super.onTouchEvent(e)
-        when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                downX = e.x; downY = e.y
-                dragging = false; rejected = false
-                tracker?.recycle()
-                tracker = VelocityTracker.obtain().also { it.addMovement(e) }
-            }
-            MotionEvent.ACTION_MOVE -> {
-                tracker?.addMovement(e)
-                if (!dragging && !rejected && e.pointerCount == 1) {
+        gestures.onTouchEvent(e)
+        if (paged) {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; swiped = false }
+                MotionEvent.ACTION_MOVE -> {
                     val dx = e.x - downX
                     val dy = e.y - downY
-                    if (abs(dx) > slop && abs(dx) > abs(dy)) {
-                        if (t.dragStart(if (dx < 0) 1 else -1, downX, downY)) {
-                            dragging = true
-                            val cancel = MotionEvent.obtain(e)
-                            cancel.action = MotionEvent.ACTION_CANCEL
-                            super.onTouchEvent(cancel)
-                            cancel.recycle()
-                        } else rejected = true
+                    if (!swiped && e.pointerCount == 1 && abs(dx) > slop * 2 && abs(dx) > abs(dy) * 1.5f) {
+                        swiped = true
+                        onSwipe(if (dx < 0) 1 else -1)
                     }
                 }
-                if (dragging) {
-                    t.drag(e.x, e.y)
-                    return true
-                }
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                tracker?.addMovement(e)
-                if (dragging) {
-                    tracker?.computeCurrentVelocity(1000)
-                    t.dragEnd(e.x, e.y, tracker?.xVelocity ?: 0f)
-                    dragging = false
-                    tracker?.recycle(); tracker = null
-                    return true
-                }
-                tracker?.recycle(); tracker = null
             }
         }
         return super.onTouchEvent(e)
@@ -163,7 +133,7 @@ class WebReaderState(
     private val ebook: EbookInfo,
     initial: ReadPosition,
     private val scope: CoroutineScope,
-) : ReaderHandle, ReaderWebView.Turner {
+) : ReaderHandle {
     var webView: ReaderWebView? = null
         private set
     var section by mutableIntStateOf(initial.section.coerceIn(0, (ebook.sections.size - 1).coerceAtLeast(0)))
@@ -174,21 +144,16 @@ class WebReaderState(
         private set
     var progression by mutableDoubleStateOf(initial.progression)
         private set
-    var turn by mutableStateOf<PageTurn?>(null)
-        private set
 
     var onPosition: (Int, Double) -> Unit = { _, _ -> }
     var onTapCenter: () -> Unit = {}
     var onUserTurn: () -> Unit = {}
     var cfgJson: String = "{}"
     var scrollMode: Boolean = false
-    var turnStyle: TurnStyle = TurnStyle.CURL
 
     private var loaded = -1
     private var loading = false
     private var pendingTarget: String = progressTarget(initial.progression)
-    private val pageSignal = Channel<Unit>(Channel.CONFLATED)
-    private val pool = arrayOfNulls<Bitmap>(2)
     private val totalWeight = ebook.sections.sumOf { it.weight.coerceAtLeast(1) }.toDouble()
     private var charsPerPage = 0.0
 
@@ -196,15 +161,14 @@ class WebReaderState(
 
     fun attach(wv: ReaderWebView) {
         webView = wv
-        wv.turner = this
+        wv.onTapZone = { onTapZone(it) }
+        wv.onSwipe = { dir -> if (turnPage(dir)) onUserTurn() }
         load(section, pendingTarget)
     }
 
     fun detach() {
-        webView?.turner = null
         webView = null
         loaded = -1
-        turn = null
     }
 
     fun load(s: Int, target: String) {
@@ -241,7 +205,6 @@ class WebReaderState(
             val cpp = ebook.sections[section].weight.coerceAtLeast(1) / n.toDouble()
             charsPerPage = if (charsPerPage == 0.0) cpp else charsPerPage * 0.7 + cpp * 0.3
         }
-        pageSignal.trySend(Unit)
         onPosition(section, prog)
     }
 
@@ -254,7 +217,6 @@ class WebReaderState(
         val changed = cfg != cfgJson
         cfgJson = cfg
         scrollMode = rs.scroll
-        turnStyle = rs.turnStyle
         webView?.paged = !rs.scroll
         if (changed && !loading) webView?.evaluateJavascript("window.__ar&&__ar.relayout($cfg)", null)
     }
@@ -277,8 +239,8 @@ class WebReaderState(
 
     fun onTapZone(zone: Int) {
         when (zone) {
-            0 -> { if (turnPage(-1, animated = true)) onUserTurn() }
-            2 -> { if (turnPage(1, animated = true)) onUserTurn() }
+            0 -> { if (turnPage(-1)) onUserTurn() }
+            2 -> { if (turnPage(1)) onUserTurn() }
             else -> onTapCenter()
         }
     }
@@ -293,133 +255,11 @@ class WebReaderState(
         webView?.evaluateJavascript(if (dir > 0) "window.__ar&&__ar.next()" else "window.__ar&&__ar.prev()", null)
     }
 
-    private fun snapshot(slot: Int): Bitmap? {
-        val wv = webView ?: return null
-        if (wv.width <= 0 || wv.height <= 0) return null
-        var b = pool[slot]
-        if (b == null || b.width != wv.width || b.height != wv.height) {
-            b = runCatching { Bitmap.createBitmap(wv.width, wv.height, Bitmap.Config.ARGB_8888) }.getOrNull() ?: return null
-            pool[slot] = b
-        }
-        val c = Canvas(b)
-        c.translate(-wv.scrollX.toFloat(), -wv.scrollY.toFloat())
-        wv.draw(c)
-        return b
-    }
-
-    private suspend fun awaitRendered() {
-        withTimeoutOrNull(2500) { pageSignal.receive() }
-        val wv = webView ?: return
-        withTimeoutOrNull(500) {
-            suspendCancellableCoroutine { cont ->
-                wv.postVisualStateCallback(0, object : WebView.VisualStateCallback() {
-                    override fun onComplete(requestId: Long) {
-                        if (cont.isActive) cont.resume(Unit)
-                    }
-                })
-            }
-        }
-        delay(16)
-    }
-
-    /** Starts a page turn. Returns false if there is nothing to turn to. */
-    private fun startTurn(dir: Int, cornerY: Float?): PageTurn? {
-        if (turn != null || loading || !canTurn(dir)) return null
-        val wv = webView ?: return null
-        val w = wv.width.toFloat()
-        val h = wv.height.toFloat()
-        val current = snapshot(0) ?: return null
-        val t = PageTurn(dir, w, h, cornerY ?: h)
-        if (dir > 0) t.front = current else t.back = current
-        while (pageSignal.tryReceive().isSuccess) Unit
-        turn = t
+    /** Turns one page instantly. */
+    fun turnPage(dir: Int): Boolean {
+        if (loading || !canTurn(dir)) return false
         jsTurn(dir)
-        scope.launch {
-            awaitRendered()
-            if (turn !== t) return@launch
-            val other = snapshot(1)
-            if (dir > 0) t.back = other else t.front = other
-            t.ready = true
-            if (t.released) settle(t, decide(t))
-        }
-        return t
-    }
-
-    /** Turns one page; animated unless the style is None. */
-    fun turnPage(dir: Int, animated: Boolean): Boolean {
-        if (turn != null) return false
-        if (!canTurn(dir)) return false
-        if (!animated || turnStyle == TurnStyle.NONE || scrollMode) {
-            jsTurn(dir)
-            return true
-        }
-        val t = startTurn(dir, null) ?: run { jsTurn(dir); return true }
-        t.released = true
-        t.releaseVelocity = if (dir > 0) -3000f else 3000f
         return true
-    }
-
-    override fun dragStart(dir: Int, x: Float, y: Float): Boolean {
-        if (turnStyle == TurnStyle.NONE) {
-            if (turn == null && canTurn(dir)) {
-                jsTurn(dir)
-                onUserTurn()
-            }
-            return false
-        }
-        val h = webView?.height?.toFloat() ?: return false
-        val t = startTurn(dir, if (y < h / 2f) 0f else h) ?: return false
-        t.downX = x
-        t.downY = y
-        onUserTurn()
-        return true
-    }
-
-    override fun drag(x: Float, y: Float) {
-        val t = turn ?: return
-        if (t.released) return
-        val dy = (y - t.downY) * 0.6f
-        if (t.dir > 0) t.setTip(t.width + (x - t.downX) * 1.4f, t.cornerY + dy)
-        else t.setTip(-t.width + (x - t.downX) * 2f, t.cornerY + dy)
-    }
-
-    override fun dragEnd(x: Float, y: Float, vx: Float) {
-        val t = turn ?: return
-        t.released = true
-        t.releaseVelocity = vx
-        if (t.ready) settle(t, decide(t))
-    }
-
-    private fun decide(t: PageTurn): Boolean {
-        val v = t.releaseVelocity
-        return if (t.dir > 0) v < -600f || (t.x < t.width * 0.6f && v < 600f)
-        else v > 600f || (t.x > -t.width * 0.4f && v > -600f)
-    }
-
-    private fun settle(t: PageTurn, complete: Boolean) {
-        scope.launch {
-            val targetX = if (t.dir > 0) (if (complete) -t.width else t.width) else (if (complete) t.width else -t.width)
-            val startX = t.x
-            val startY = t.y
-            val span = abs(targetX - startX).coerceAtLeast(1f)
-            val tapStart = abs(startX) >= t.width - 1f && abs(startY - t.cornerY) < 1f
-            val lift = if (t.cornerY > 0f) -t.height * 0.12f else t.height * 0.12f
-            val dur = (180 + 260 * span / (2 * t.width)).toInt()
-            animate(0f, 1f, animationSpec = tween(dur, easing = FastOutSlowInEasing)) { f, _ ->
-                val nx = startX + (targetX - startX) * f
-                val ny = if (tapStart) t.cornerY + lift * sin(PI * f).toFloat()
-                else startY + (t.cornerY - startY) * f
-                t.x = nx
-                t.y = ny
-            }
-            if (!complete) {
-                // Put the page back the way it was, hidden behind the overlay.
-                while (pageSignal.tryReceive().isSuccess) Unit
-                jsTurn(-t.dir)
-                awaitRendered()
-            }
-            if (turn === t) turn = null
-        }
     }
 
     // ------------------------------------------------------------------ ReaderHandle
@@ -434,18 +274,18 @@ class WebReaderState(
     }
 
     override fun next() {
-        turnPage(1, animated = true)
+        turnPage(1)
     }
 
     override fun prev() {
-        turnPage(-1, animated = true)
+        turnPage(-1)
     }
 
     override fun follow(t: Double) {
-        if (loading || turn != null) return
+        if (loading) return
         val p = SyncMapper.textLocal(ebook, t)
         if (p.section != section) {
-            if (p.section == section + 1 && page >= pageCount - 1) turnPage(1, animated = true)
+            if (p.section == section + 1 && page >= pageCount - 1) turnPage(1)
             else load(p.section, progressTarget(p.progression))
             return
         }
@@ -456,7 +296,7 @@ class WebReaderState(
         val target = floor(p.progression * pageCount).toInt().coerceIn(0, pageCount - 1)
         when {
             target == page -> Unit
-            target == page + 1 -> turnPage(1, animated = true)
+            target == page + 1 -> turnPage(1)
             else -> webView?.evaluateJavascript("window.__ar&&__ar.go($target)", null)
         }
     }
@@ -505,7 +345,6 @@ fun WebReaderView(state: WebReaderState, rs: ReaderSettings, modifier: Modifier 
     if (state.webView == null) {
         state.cfgJson = cfg
         state.scrollMode = rs.scroll
-        state.turnStyle = rs.turnStyle
     }
     Box(modifier) {
         AndroidView(
@@ -544,14 +383,6 @@ fun WebReaderView(state: WebReaderState, rs: ReaderSettings, modifier: Modifier 
                 wv.destroy()
             },
         )
-        val t = state.turn
-        if (t != null) {
-            Canvas(Modifier.fillMaxSize()) {
-                // reading t.x / t.y here makes the canvas redraw on every animation frame
-                if (t.x.isNaN() || t.y.isNaN()) return@Canvas
-                drawIntoCanvas { c -> PageCurl.draw(c.nativeCanvas, t, rs.turnStyle, bg, rs.theme.dark) }
-            }
-        }
     }
     LaunchedEffect(rs) {
         val wv = state.webView ?: return@LaunchedEffect
@@ -687,20 +518,11 @@ window.addEventListener('scroll', function(){
   if (!R.cfg.scroll) { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); return; }
   clearTimeout(sc); sc = setTimeout(R.report, 200);
 });
-var sx = 0, sy = 0, stt = 0;
-document.addEventListener('touchstart', function(e){ var t = e.touches[0]; sx = t.clientX; sy = t.clientY; stt = Date.now(); }, {passive:true});
+var sy0 = 0;
+document.addEventListener('touchstart', function(e){ sy0 = e.touches[0].clientY; }, {passive:true});
 document.addEventListener('touchmove', function(e){ if (!R.cfg.scroll) e.preventDefault(); }, {passive:false});
 document.addEventListener('touchend', function(e){
-  var t = e.changedTouches[0]; var dx = t.clientX - sx, dy = t.clientY - sy;
-  if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && Date.now() - stt < 450) {
-    var a = e.target && e.target.closest ? e.target.closest('a') : null;
-    if (a) return;
-    var sel = window.getSelection(); if (sel && sel.toString().length > 0) return;
-    var w = W(), x = t.clientX;
-    AR.onTapZone(x < w * 0.28 ? 0 : (x > w * 0.72 ? 2 : 1));
-  } else if (R.cfg.scroll && Math.abs(dy) > 12) {
-    AR.onUserTurn();
-  }
+  if (R.cfg.scroll && Math.abs(e.changedTouches[0].clientY - sy0) > 12) AR.onUserTurn();
 }, {passive:true});
 document.addEventListener('click', function(e){
   var a = e.target && e.target.closest ? e.target.closest('a') : null;

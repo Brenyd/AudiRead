@@ -90,8 +90,8 @@ data class Book(
 enum class ReaderTheme(val label: String, val bg: Long, val fg: Long, val dark: Boolean) {
     LIGHT("Light", 0xFFFFFFFF, 0xFF202124, false),
     SEPIA("Sepia", 0xFFFBF0D9, 0xFF5F4B32, false),
-    DUSK("Dark", 0xFF202124, 0xFFE8EAED, true),
-    BLACK("Black", 0xFF000000, 0xFFC4C7C5, true),
+    DUSK("Gray", 0xFF2B2C30, 0xFFE8EAED, true),
+    BLACK("Dark", 0xFF000000, 0xFFFFFFFF, true),
 }
 
 enum class TurnStyle(val label: String) { CURL("Curl"), SLIDE("Slide"), NONE("None") }
@@ -108,7 +108,13 @@ data class ReaderSettings(
     val turnStyle: TurnStyle = TurnStyle.CURL,
     /** Reader screen brightness 0..1, or -1 to follow the system. */
     val brightness: Float = -1f,
-)
+    /** Use the Dark theme automatically while the phone is in dark mode. */
+    val matchSystem: Boolean = true,
+    val seenTapHint: Boolean = false,
+) {
+    fun effective(systemDark: Boolean): ReaderSettings =
+        if (matchSystem && systemDark && !theme.dark) copy(theme = ReaderTheme.BLACK) else this
+}
 
 @Serializable
 data class PlaybackSettings(

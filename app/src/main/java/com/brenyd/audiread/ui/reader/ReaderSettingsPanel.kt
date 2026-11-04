@@ -49,7 +49,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brenyd.audiread.data.ReaderSettings
 import com.brenyd.audiread.data.ReaderTheme
-import com.brenyd.audiread.data.TurnStyle
 import kotlin.math.roundToInt
 
 private val fonts = listOf(
@@ -73,7 +72,7 @@ fun ReaderSettingsPanel(s: ReaderSettings, fixedLayout: Boolean, onChange: (Read
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             ReaderTheme.entries.forEach { t ->
                 val selected = t == s.theme
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onChange(s.copy(theme = t)) }) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onChange(s.copy(theme = t, matchSystem = false)) }) {
                     Box(
                         Modifier.size(56.dp).clip(CircleShape).background(Color(t.bg))
                             .border(
@@ -89,6 +88,17 @@ fun ReaderSettingsPanel(s: ReaderSettings, fixedLayout: Boolean, onChange: (Read
                         color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+        }
+        Row(
+            Modifier.fillMaxWidth().clickable { onChange(s.copy(matchSystem = !s.matchSystem)) }.padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Dark when phone is in dark mode")
+                Text("Black pages with white text", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = s.matchSystem, onCheckedChange = { onChange(s.copy(matchSystem = it)) })
         }
         if (fixedLayout) {
             Text("Dark themes invert page colors.", style = MaterialTheme.typography.bodySmall,
@@ -159,15 +169,9 @@ fun ReaderSettingsPanel(s: ReaderSettings, fixedLayout: Boolean, onChange: (Read
                     leadingIcon = { Icon(Icons.Filled.FormatAlignJustify, null, Modifier.size(18.dp)) }, label = { Text("Justified") })
             }
 
-            Label("Page turn")
+            Label("Layout")
             Row(Modifier.padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TurnStyle.entries.forEach { t ->
-                    FilterChip(
-                        selected = !s.scroll && s.turnStyle == t,
-                        onClick = { onChange(s.copy(turnStyle = t, scroll = false)) },
-                        label = { Text(t.label) },
-                    )
-                }
+                FilterChip(selected = !s.scroll, onClick = { onChange(s.copy(scroll = false)) }, label = { Text("Pages") })
                 FilterChip(selected = s.scroll, onClick = { onChange(s.copy(scroll = true)) }, label = { Text("Scroll") })
             }
         }
