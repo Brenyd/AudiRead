@@ -20,6 +20,13 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Fetch Literata font (OFL)
+        run: |
+          mkdir -p app/src/main/assets/fonts
+          curl -sfL -o app/src/main/assets/fonts/Literata.ttf "https://github.com/google/fonts/raw/main/ofl/literata/Literata%5Bopsz%2Cwght%5D.ttf" || echo "font download failed"
+          curl -sfL -o app/src/main/assets/fonts/Literata-Italic.ttf "https://github.com/google/fonts/raw/main/ofl/literata/Literata-Italic%5Bopsz%2Cwght%5D.ttf" || echo "italic download failed"
+          ls -la app/src/main/assets/fonts
+
       - name: Build debug APK
         run: |
           chmod +x gradlew

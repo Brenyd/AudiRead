@@ -53,6 +53,15 @@ data class ReadPosition(val section: Int = 0, val progression: Double = 0.0, val
 data class SyncAnchor(val text: Double, val audioMs: Long)
 
 @Serializable
+data class Bookmark(
+    val section: Int,
+    val progression: Double,
+    val global: Double,
+    val label: String,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+@Serializable
 data class Book(
     val id: String,
     val title: String,
@@ -63,6 +72,7 @@ data class Book(
     val readPos: ReadPosition = ReadPosition(),
     val listenMs: Long = 0,
     val syncAnchors: List<SyncAnchor> = emptyList(),
+    val bookmarks: List<Bookmark> = emptyList(),
     val addedAt: Long = System.currentTimeMillis(),
     val lastReadAt: Long = 0,
     val lastListenAt: Long = 0,
@@ -78,21 +88,26 @@ data class Book(
 }
 
 enum class ReaderTheme(val label: String, val bg: Long, val fg: Long, val dark: Boolean) {
-    LIGHT("Light", 0xFFFFFFFF, 0xFF1C1B1F, false),
-    SEPIA("Sepia", 0xFFF4EAD5, 0xFF4B3A26, false),
-    DUSK("Dusk", 0xFF2A2B2F, 0xFFD8D4CC, true),
-    BLACK("Black", 0xFF000000, 0xFFBEBEBE, true),
+    LIGHT("Light", 0xFFFFFFFF, 0xFF202124, false),
+    SEPIA("Sepia", 0xFFFBF0D9, 0xFF5F4B32, false),
+    DUSK("Dark", 0xFF202124, 0xFFE8EAED, true),
+    BLACK("Black", 0xFF000000, 0xFFC4C7C5, true),
 }
+
+enum class TurnStyle(val label: String) { CURL("Curl"), SLIDE("Slide"), NONE("None") }
 
 @Serializable
 data class ReaderSettings(
-    val theme: ReaderTheme = ReaderTheme.SEPIA,
+    val theme: ReaderTheme = ReaderTheme.LIGHT,
     val fontScale: Int = 100,
-    val font: String = "default",
+    val font: String = "literata",
     val lineHeight: Float = 1.5f,
     val margin: Int = 22,
     val justify: Boolean = true,
     val scroll: Boolean = false,
+    val turnStyle: TurnStyle = TurnStyle.CURL,
+    /** Reader screen brightness 0..1, or -1 to follow the system. */
+    val brightness: Float = -1f,
 )
 
 @Serializable

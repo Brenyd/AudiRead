@@ -84,7 +84,7 @@ class PagedReaderState(
         if (p != pager.currentPage && !pager.isScrollInProgress) scope.launch { pager.animateScrollToPage(p) }
     }
 
-    override fun pageLabel(): String = "${pager.currentPage + 1} / $count"
+    override fun pageInfo(): PageInfo = PageInfo(pager.currentPage + 1, count, 0)
 }
 
 private val invert = ColorFilter.colorMatrix(

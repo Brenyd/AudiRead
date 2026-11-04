@@ -12,18 +12,25 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.BrightnessHigh
+import androidx.compose.material.icons.filled.BrightnessLow
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.FormatAlignJustify
+import androidx.compose.material.icons.filled.FormatAlignLeft
+import androidx.compose.material.icons.filled.FormatLineSpacing
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -36,103 +43,170 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.brenyd.audiread.data.ReaderSettings
 import com.brenyd.audiread.data.ReaderTheme
-import java.util.Locale
+import com.brenyd.audiread.data.TurnStyle
 import kotlin.math.roundToInt
 
 private val fonts = listOf(
-    "default" to "Original",
-    "serif" to "Serif",
-    "sans-serif" to "Sans",
-    "sans-serif-condensed" to "Condensed",
-    "monospace" to "Mono",
+    Triple("literata", "Literata", FontFamily.Serif),
+    Triple("default", "Original", FontFamily.Default),
+    Triple("serif", "Serif", FontFamily.Serif),
+    Triple("sans-serif", "Sans", FontFamily.SansSerif),
+    Triple("sans-serif-condensed", "Condensed", FontFamily.SansSerif),
+    Triple("monospace", "Mono", FontFamily.Monospace),
 )
 
 @Composable
 fun ReaderSettingsPanel(s: ReaderSettings, fixedLayout: Boolean, onChange: (ReaderSettings) -> Unit) {
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp).verticalScroll(rememberScrollState()),
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp).navigationBarsPadding(),
     ) {
-        Text("Theme", style = MaterialTheme.typography.labelLarge)
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("Display options", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp))
+        Spacer(Modifier.height(16.dp))
+
+        // Theme
+        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             ReaderTheme.entries.forEach { t ->
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                val selected = t == s.theme
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onChange(s.copy(theme = t)) }) {
                     Box(
-                        Modifier.size(48.dp).clip(CircleShape).background(Color(t.bg))
+                        Modifier.size(56.dp).clip(CircleShape).background(Color(t.bg))
                             .border(
-                                BorderStroke(if (t == s.theme) 3.dp else 1.dp, if (t == s.theme) MaterialTheme.colorScheme.primary else Color.Gray),
+                                BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else Color(0x33888888)),
                                 CircleShape,
-                            )
-                            .clickable { onChange(s.copy(theme = t)) },
+                            ),
                         contentAlignment = Alignment.Center,
-                    ) { Text("Aa", color = Color(t.fg), fontWeight = FontWeight.SemiBold) }
-                    Text(t.label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                    ) {
+                        if (selected) Icon(Icons.Filled.Check, null, tint = Color(t.fg))
+                        else Text("Aa", color = Color(t.fg), fontWeight = FontWeight.Medium, fontFamily = FontFamily.Serif)
+                    }
+                    Text(t.label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp),
+                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
         if (fixedLayout) {
-            Spacer(Modifier.height(12.dp))
-            Text("Dark themes invert page colors.", style = MaterialTheme.typography.bodySmall)
-        } else {
-            TextOptions(s, onChange)
+            Text("Dark themes invert page colors.", style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+        }
+
+        Divider()
+        BrightnessRow(s, onChange)
+
+        if (!fixedLayout) {
+            Divider()
+            Label("Typeface")
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                fonts.forEach { (value, label, family) ->
+                    FilterChip(
+                        selected = s.font == value, onClick = { onChange(s.copy(font = value)) },
+                        label = { Text(label, fontFamily = family) },
+                    )
+                }
+            }
+
+            Divider()
+            var size by remember(s.fontScale) { mutableFloatStateOf(s.fontScale.toFloat()) }
+            Label("Text size")
+            Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("A", fontSize = 13.sp, fontFamily = FontFamily.Serif)
+                Slider(
+                    value = size, onValueChange = { size = ((it / 5).roundToInt() * 5).toFloat() },
+                    onValueChangeFinished = { onChange(s.copy(fontScale = size.roundToInt())) },
+                    valueRange = 60f..250f, modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                )
+                Text("A", fontSize = 24.sp, fontFamily = FontFamily.Serif)
+            }
+
+            var line by remember(s.lineHeight) { mutableFloatStateOf(s.lineHeight) }
+            Label("Line spacing")
+            Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.FormatLineSpacing, null, Modifier.size(18.dp))
+                Slider(
+                    value = line, onValueChange = { line = (it * 10).roundToInt() / 10f },
+                    onValueChangeFinished = { onChange(s.copy(lineHeight = line)) },
+                    valueRange = 1.0f..2.4f, modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                )
+                Icon(Icons.Filled.FormatLineSpacing, null, Modifier.size(26.dp))
+            }
+
+            var margin by remember(s.margin) { mutableFloatStateOf(s.margin.toFloat()) }
+            Label("Margins")
+            Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Narrow", style = MaterialTheme.typography.labelSmall)
+                Slider(
+                    value = margin, onValueChange = { margin = it },
+                    onValueChangeFinished = { onChange(s.copy(margin = margin.roundToInt())) },
+                    valueRange = 4f..64f, modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                )
+                Text("Wide", style = MaterialTheme.typography.labelSmall)
+            }
+
+            Divider()
+            Label("Alignment")
+            Row(Modifier.padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !s.justify, onClick = { onChange(s.copy(justify = false)) },
+                    leadingIcon = { Icon(Icons.Filled.FormatAlignLeft, null, Modifier.size(18.dp)) }, label = { Text("Left") })
+                FilterChip(selected = s.justify, onClick = { onChange(s.copy(justify = true)) },
+                    leadingIcon = { Icon(Icons.Filled.FormatAlignJustify, null, Modifier.size(18.dp)) }, label = { Text("Justified") })
+            }
+
+            Label("Page turn")
+            Row(Modifier.padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TurnStyle.entries.forEach { t ->
+                    FilterChip(
+                        selected = !s.scroll && s.turnStyle == t,
+                        onClick = { onChange(s.copy(turnStyle = t, scroll = false)) },
+                        label = { Text(t.label) },
+                    )
+                }
+                FilterChip(selected = s.scroll, onClick = { onChange(s.copy(scroll = true)) }, label = { Text("Scroll") })
+            }
         }
     }
 }
 
 @Composable
-private fun TextOptions(s: ReaderSettings, onChange: (ReaderSettings) -> Unit) {
-    Column {
-
-        Spacer(Modifier.height(20.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Text size", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-            OutlinedIconButton(onClick = { onChange(s.copy(fontScale = (s.fontScale - 10).coerceAtLeast(60))) }) {
-                Icon(Icons.Filled.Remove, "Smaller")
-            }
-            Text("${s.fontScale}%", modifier = Modifier.padding(horizontal = 12.dp))
-            OutlinedIconButton(onClick = { onChange(s.copy(fontScale = (s.fontScale + 10).coerceAtMost(260))) }) {
-                Icon(Icons.Filled.Add, "Larger")
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-        Text("Font", style = MaterialTheme.typography.labelLarge)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            fonts.forEach { (value, label) ->
-                FilterChip(selected = s.font == value, onClick = { onChange(s.copy(font = value)) }, label = { Text(label) })
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-        var line by remember(s.lineHeight) { mutableFloatStateOf(s.lineHeight) }
-        Text("Line spacing  ${String.format(Locale.US, "%.1f", line)}", style = MaterialTheme.typography.labelLarge)
+private fun BrightnessRow(s: ReaderSettings, onChange: (ReaderSettings) -> Unit) {
+    val auto = s.brightness < 0f
+    var value by remember(s.brightness) { mutableFloatStateOf(if (auto) 0.5f else s.brightness) }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Filled.BrightnessLow, "Brightness", Modifier.size(20.dp))
         Slider(
-            value = line, onValueChange = { line = (it * 10).roundToInt() / 10f },
-            onValueChangeFinished = { onChange(s.copy(lineHeight = line)) },
-            valueRange = 1.0f..2.4f,
+            value = value, enabled = !auto,
+            onValueChange = { value = it },
+            onValueChangeFinished = { onChange(s.copy(brightness = value)) },
+            valueRange = 0.02f..1f, modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
         )
-
-        var margin by remember(s.margin) { mutableFloatStateOf(s.margin.toFloat()) }
-        Text("Margins  ${margin.roundToInt()}", style = MaterialTheme.typography.labelLarge)
-        Slider(
-            value = margin, onValueChange = { margin = it },
-            onValueChangeFinished = { onChange(s.copy(margin = margin.roundToInt())) },
-            valueRange = 0f..64f,
-        )
-
-        SwitchRow("Justify text", s.justify) { onChange(s.copy(justify = it)) }
-        SwitchRow("Continuous scrolling", s.scroll) { onChange(s.copy(scroll = it)) }
+        Icon(Icons.Filled.BrightnessHigh, null, Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Switch(checked = auto, onCheckedChange = { onChange(s.copy(brightness = if (it) -1f else value)) })
+            Text("Auto", style = MaterialTheme.typography.labelSmall)
+        }
     }
 }
 
 @Composable
-private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
-    }
+private fun Label(text: String) {
+    Text(
+        text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 4.dp),
+    )
 }
+
+@Composable
+private fun Divider() {
+    HorizontalDivider(Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+}
+
+@Suppress("unused")
+private val pillShape = RoundedCornerShape(50)
