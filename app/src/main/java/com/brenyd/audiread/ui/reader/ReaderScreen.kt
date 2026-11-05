@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -160,6 +161,11 @@ private fun ReaderContent(book: Book, ebook: EbookInfo, audioOn: Boolean, onBack
     var showSyncPoints by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
     var returnTo by remember { mutableStateOf<ReadPosition?>(null) }
+    val importSync = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) com.brenyd.audiread.importer.ImportManager.importSyncFile(ctx, uri, book.id) }
+    val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
+    LaunchedEffect(Unit) { com.brenyd.audiread.importer.ImportManager.messages.collect { snackbar.showSnackbar(it) } }
 
     LaunchedEffect(book.id) {
         val now = System.currentTimeMillis()
@@ -380,6 +386,14 @@ private fun ReaderContent(book: Book, ebook: EbookInfo, audioOn: Boolean, onBack
                                         },
                                     )
                                     DropdownMenuItem(
+                                        text = { Text("Import sync file…") },
+                                        leadingIcon = { Icon(Icons.Filled.Sync, null) },
+                                        onClick = {
+                                            showMenu = false
+                                            importSync.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*"))
+                                        },
+                                    )
+                                    DropdownMenuItem(
                                         text = { Text("Manage sync points…") },
                                         leadingIcon = { Icon(Icons.Filled.Tune, null) },
                                         onClick = { showMenu = false; showSyncPoints = true },
@@ -409,6 +423,8 @@ private fun ReaderContent(book: Book, ebook: EbookInfo, audioOn: Boolean, onBack
                     onNext = { jumpChapter(1); onUserTurn() },
                 )
             }
+
+            androidx.compose.material3.SnackbarHost(snackbar, Modifier.align(Alignment.Center))
 
             val back = returnTo
             if (back != null && !controls && abs(back.global - position.global) > 0.0005) {

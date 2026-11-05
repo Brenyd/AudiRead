@@ -39,6 +39,10 @@ An Android app for reading an ebook and listening to its audiobook — separatel
 - Sync is estimated from the book length and refined automatically wherever audio chapter titles match the table of contents
 - For exact sync, pin a point (sync menu → *Pin: narrator is at the top of this page*); pins are kept per book and can be managed or cleared
 
+**Exact sync with the desktop app**
+- [`desktop/audiread-sync`](desktop/audiread-sync) is a small Linux app that listens to the audiobook with local Whisper speech recognition and matches it to the ebook word by word
+- It saves a `.audiread-sync.json`; import it with **⋮ → Import sync file** for a sync point every few seconds through the whole book
+
 **Android Auto**
 - Browse *Continue listening* and *All audiobooks*, resume where you left off, chapter skip and ±seconds buttons on the car screen
 - Reading and listening positions are saved continuously and resume from either side

@@ -103,6 +103,9 @@ fun BookDetailScreen(bookId: String, onBack: () -> Unit, onRead: (Boolean) -> Un
     val linkEbook = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) { persistRead(ctx, uri); ImportManager.attachEbook(ctx, uri, book.id) }
     }
+    val importSync = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) ImportManager.importSyncFile(ctx, uri, book.id)
+    }
     val audioTypes = arrayOf("audio/*", "video/mp4", "application/octet-stream")
 
     fun listen() {
@@ -131,6 +134,8 @@ fun BookDetailScreen(bookId: String, onBack: () -> Unit, onRead: (Boolean) -> Un
                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.MenuBook, null) },
                             onClick = { menu = false; linkEbook.launch(arrayOf("*/*")) })
                         if (book.ebook != null && book.audio != null) {
+                            DropdownMenuItem(text = { Text("Import sync file") }, leadingIcon = { Icon(Icons.Filled.Sync, null) },
+                                onClick = { menu = false; importSync.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) })
                             DropdownMenuItem(text = { Text("Sync points") }, leadingIcon = { Icon(Icons.Filled.Sync, null) },
                                 onClick = { menu = false; syncPoints = true })
                         }
@@ -367,15 +372,31 @@ private fun EditDialog(book: Book, onDismiss: () -> Unit) {
 @Composable
 fun SyncPointsDialog(book: Book, onDismiss: () -> Unit) {
     val auto = remember(book.id) { SyncMapper.autoAnchors(book).size }
+    val aligned = book.alignedAnchors.size
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Sync points") },
         text = {
             Column {
+                if (aligned > 0) {
+                    Text(
+                        "Synced from a sync file: ${book.alignedInfo ?: "$aligned points"}.",
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary,
+                    )
+                    TextButton(onClick = {
+                        LibraryRepository.update(book.id) { it.copy(alignedAnchors = emptyList(), alignedInfo = null) }
+                    }) { Text("Remove sync file") }
+                } else {
+                    Text(
+                        "For exact sync, make a sync file with the AudiRead Sync desktop app and import it from the book's ⋮ menu.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 Text(
-                    "Text and audio are lined up using the start and end of the book" +
+                    "Without a sync file, text and audio are lined up using the start and end of the book" +
                         (if (auto > 0) ", $auto matched chapters" else "") +
-                        " and any points you pin while reading (Read + Listen → sync menu → Pin).",
+                        " and any points you pin while reading (Read + Listen → ⋮ → Pin).",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Spacer(Modifier.height(12.dp))

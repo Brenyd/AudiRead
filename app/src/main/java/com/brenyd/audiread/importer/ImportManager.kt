@@ -91,7 +91,7 @@ object ImportManager {
             val existing = LibraryRepository.get(attachTo) ?: throw IOException("Book not found")
             val cover = existing.coverPath ?: Util.saveCover(ctx, a.cover, existing.id)
             LibraryRepository.update(attachTo) {
-                it.copy(audio = a.audio, listenMs = 0, lastListenAt = 0, syncAnchors = emptyList(), coverPath = cover)
+                it.copy(audio = a.audio, listenMs = 0, lastListenAt = 0, syncAnchors = emptyList(), alignedAnchors = emptyList(), alignedInfo = null, coverPath = cover)
             }
             _messages.tryEmit("Audiobook linked (${a.audio.chapters.size} chapters)")
         } else {
@@ -109,11 +109,20 @@ object ImportManager {
         val cover = existing.coverPath ?: Util.saveCover(ctx, r.cover, bookId)
         LibraryRepository.update(bookId) {
             it.copy(
-                ebook = r.info, readPos = ReadPosition(), lastReadAt = 0, syncAnchors = emptyList(), coverPath = cover,
+                ebook = r.info, readPos = ReadPosition(), lastReadAt = 0, syncAnchors = emptyList(), alignedAnchors = emptyList(), alignedInfo = null, coverPath = cover,
                 author = it.author.ifBlank { r.author ?: "" },
             )
         }
         _messages.tryEmit("Ebook linked")
+    }
+
+    fun importSyncFile(ctx: Context, uri: Uri, bookId: String) = launchJob("Reading sync file…") {
+        val book = LibraryRepository.get(bookId) ?: throw IOException("Book not found")
+        val r = SyncFileImporter.resolve(ctx, uri, book) { f -> _status.value = Status("Matching sync points to the text…", f) }
+        LibraryRepository.update(bookId) {
+            it.copy(alignedAnchors = r.anchors, alignedInfo = r.summary, syncAnchors = emptyList())
+        }
+        _messages.tryEmit(r.summary)
     }
 
     // ---------------------------------------------------------------- library folder scan

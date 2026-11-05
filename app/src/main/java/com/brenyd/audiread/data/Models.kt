@@ -73,6 +73,9 @@ data class Book(
     val listenMs: Long = 0,
     val syncAnchors: List<SyncAnchor> = emptyList(),
     val bookmarks: List<Bookmark> = emptyList(),
+    /** Dense text↔audio points from an AudiRead Sync file (speech-recognition alignment). */
+    val alignedAnchors: List<SyncAnchor> = emptyList(),
+    val alignedInfo: String? = null,
     val addedAt: Long = System.currentTimeMillis(),
     val lastReadAt: Long = 0,
     val lastListenAt: Long = 0,

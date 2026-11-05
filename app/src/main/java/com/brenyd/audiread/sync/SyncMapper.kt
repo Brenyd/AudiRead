@@ -99,15 +99,19 @@ object SyncMapper {
         val ends = listOf(SyncAnchor(0.0, 0L), SyncAnchor(1.0, total))
         if (total <= 0L || book.ebook == null) return ends
         val key = book.id
-        val sig = book.syncAnchors.hashCode() * 31 + (book.ebook.toc.size * 17) + book.audio!!.chapters.size + total.hashCode()
+        val al = book.alignedAnchors
+        val sig = book.syncAnchors.hashCode() * 31 + (book.ebook.toc.size * 17) + book.audio!!.chapters.size +
+            total.hashCode() + al.size * 7919 + (al.firstOrNull()?.hashCode() ?: 0) + (al.lastOrNull()?.hashCode() ?: 0) * 3
         synchronized(anchorCache) { anchorCache[key]?.let { if (it.first == sig) return it.second } }
 
         val manual = book.syncAnchors.sortedBy { it.text }
-        val auto = autoAnchors(book).filter { a ->
+        // A sync file (speech alignment) beats chapter-title matching; hand-pinned points beat both.
+        val base = if (al.isNotEmpty()) al else autoAnchors(book)
+        val keep = base.filter { a ->
             manual.all { m -> abs(m.text - a.text) > 0.002 && ((a.text < m.text) == (a.audioMs < m.audioMs)) }
         }
-        val all = (manual + auto + ends).sortedWith(compareBy<SyncAnchor>({ it.text }, { it.audioMs }))
-        val out = ArrayList<SyncAnchor>()
+        val all = (manual + keep + ends).sortedWith(compareBy<SyncAnchor>({ it.text }, { it.audioMs }))
+        val out = ArrayList<SyncAnchor>(all.size)
         for (a in all) {
             val last = out.lastOrNull()
             if (last == null || (a.text > last.text && a.audioMs > last.audioMs)) out += a
@@ -119,28 +123,32 @@ object SyncMapper {
     fun textToAudio(book: Book, t: Double): Long {
         val a = anchors(book)
         val tt = t.coerceIn(0.0, 1.0)
-        for (i in 0 until a.size - 1) {
-            val x0 = a[i]
-            val x1 = a[i + 1]
-            if (tt <= x1.text) {
-                val f = if (x1.text > x0.text) (tt - x0.text) / (x1.text - x0.text) else 0.0
-                return (x0.audioMs + f * (x1.audioMs - x0.audioMs)).toLong()
-            }
+        var lo = 0
+        var hi = a.size - 1
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (a[mid].text < tt) lo = mid + 1 else hi = mid
         }
-        return a.last().audioMs
+        if (lo == 0) return a[0].audioMs
+        val x0 = a[lo - 1]
+        val x1 = a[lo]
+        val f = if (x1.text > x0.text) (tt - x0.text) / (x1.text - x0.text) else 0.0
+        return (x0.audioMs + f.coerceIn(0.0, 1.0) * (x1.audioMs - x0.audioMs)).toLong()
     }
 
     fun audioToText(book: Book, ms: Long): Double {
         val a = anchors(book)
-        for (i in 0 until a.size - 1) {
-            val x0 = a[i]
-            val x1 = a[i + 1]
-            if (ms <= x1.audioMs) {
-                val f = if (x1.audioMs > x0.audioMs) (ms - x0.audioMs).toDouble() / (x1.audioMs - x0.audioMs) else 0.0
-                return (x0.text + f.coerceIn(0.0, 1.0) * (x1.text - x0.text)).coerceIn(0.0, 1.0)
-            }
+        var lo = 0
+        var hi = a.size - 1
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (a[mid].audioMs < ms) lo = mid + 1 else hi = mid
         }
-        return a.last().text
+        if (lo == 0) return a[0].text
+        val x0 = a[lo - 1]
+        val x1 = a[lo]
+        val f = if (x1.audioMs > x0.audioMs) (ms - x0.audioMs).toDouble() / (x1.audioMs - x0.audioMs) else 0.0
+        return (x0.text + f.coerceIn(0.0, 1.0) * (x1.text - x0.text)).coerceIn(0.0, 1.0)
     }
 
     /** Returns [book] with a new manual sync point, dropping any that would now be out of order. */
