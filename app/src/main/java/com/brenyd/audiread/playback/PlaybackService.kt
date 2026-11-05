@@ -52,7 +52,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
-        exo = ExoPlayer.Builder(this)
+        exo = ExoPlayer.Builder(this, AudioDecoders.renderersFactory(this))
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(),
                 true,
@@ -169,7 +169,7 @@ class PlaybackService : MediaLibraryService() {
         if (at == null && total > 0 && g >= total - 5000) g = 0
         val (index, pos) = NowPlaying.locate(g)
         val pb = SettingsStore.playback.value
-        exo.setPlaybackSpeed(pb.speed)
+        exo.setPlaybackSpeed(pb.speed.takeIf { !it.isNaN() }?.coerceIn(0.5f, 3.5f) ?: 1f)
         exo.skipSilenceEnabled = pb.skipSilence
         return MediaSession.MediaItemsWithStartPosition(BookMedia.playlist(this, book), index, pos)
     }
