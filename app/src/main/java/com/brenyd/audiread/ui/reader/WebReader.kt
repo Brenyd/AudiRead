@@ -88,6 +88,8 @@ class ReaderWebView(ctx: Context) : WebView(ctx) {
     /** dir: +1 forward, -1 back */
     var onSwipe: (Int) -> Unit = {}
     var paged = true
+    /** Called with the view size in CSS pixels (dp) whenever it changes. */
+    var onSize: (Int, Int) -> Unit = { _, _ -> }
     private val slop = ViewConfiguration.get(ctx).scaledTouchSlop * 2
     private var downX = 0f
     private var downY = 0f
@@ -108,6 +110,12 @@ class ReaderWebView(ctx: Context) : WebView(ctx) {
             return true
         }
     })
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val d = resources.displayMetrics.density
+        if (w > 0 && h > 0) onSize((w / d).toInt(), (h / d).toInt())
+    }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         gestures.onTouchEvent(e)
@@ -153,6 +161,8 @@ class WebReaderState(
 
     private var loaded = -1
     private var loading = false
+    private var vw = 0
+    private var vh = 0
     private var pendingTarget: String = progressTarget(initial.progression)
     private val totalWeight = ebook.sections.sumOf { it.weight.coerceAtLeast(1) }.toDouble()
     private var charsPerPage = 0.0
@@ -163,6 +173,12 @@ class WebReaderState(
         webView = wv
         wv.onTapZone = { onTapZone(it) }
         wv.onSwipe = { dir -> if (turnPage(dir)) onUserTurn() }
+        wv.onSize = { w, h -> setSize(w, h) }
+        if (wv.width > 0 && wv.height > 0) {
+            val d = wv.resources.displayMetrics.density
+            vw = (wv.width / d).toInt()
+            vh = (wv.height / d).toInt()
+        }
         load(section, pendingTarget)
     }
 
@@ -192,8 +208,15 @@ class WebReaderState(
         wv.loadUrl(Uri.fromFile(File(ebook.contentDir, ebook.sections[idx].path)).toString())
     }
 
+    private fun setSize(w: Int, h: Int) {
+        if (w == vw && h == vh) return
+        vw = w
+        vh = h
+        if (!loading) webView?.evaluateJavascript("window.__ar&&__ar.setSize($w,$h)", null)
+    }
+
     fun onPageFinished(wv: WebView) {
-        wv.evaluateJavascript("$READER_JS;__ar.apply($cfgJson);__ar.init($pendingTarget);", null)
+        wv.evaluateJavascript("$READER_JS;__ar.vw=$vw;__ar.vh=$vh;__ar.apply($cfgJson);__ar.init($pendingTarget);", null)
     }
 
     fun reportPage(p: Int, n: Int, prog: Double) {
@@ -355,6 +378,8 @@ fun WebReaderView(state: WebReaderState, rs: ReaderSettings, modifier: Modifier 
                     this.settings.allowFileAccess = true
                     this.settings.textZoom = rs.fontScale
                     this.settings.setSupportZoom(false)
+                    this.settings.useWideViewPort = false
+                    this.settings.loadWithOverviewMode = false
                     this.settings.builtInZoomControls = false
                     paged = !rs.scroll
                     setBackgroundColor(bg)
@@ -404,7 +429,16 @@ if (window.__ar) return;
 var R = {}; window.__ar = R;
 R.cfg = {scroll:false, margin:20, marginTop:40};
 R.page = 0; R.lastProg = 0;
-function W(){ return window.innerWidth; }
+R.vw = 0; R.vh = 0;
+function W(){ return R.vw > 0 ? R.vw : (document.documentElement.clientWidth || window.innerWidth); }
+function H(){ return R.vh > 0 ? R.vh : (document.documentElement.clientHeight || window.innerHeight); }
+function ensureViewport(){
+  var h = document.head || document.getElementsByTagName('head')[0];
+  if (!h) return;
+  var m = document.querySelector('meta[name=viewport]');
+  if (!m) { m = document.createElement('meta'); m.setAttribute('name', 'viewport'); h.insertBefore(m, h.firstChild); }
+  m.setAttribute('content', 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no');
+}
 function shift(x){
   var b = document.body; if (!b) return;
   b.style.setProperty('transform', x ? 'translate3d(' + (-x) + 'px,0,0)' : 'none', 'important');
@@ -417,7 +451,8 @@ R.apply = function(cfg){
     var h = document.head || document.getElementsByTagName('head')[0] || document.documentElement;
     h.appendChild(st);
   }
-  var Wd = W(), H = window.innerHeight, m = cfg.margin, mt = cfg.marginTop;
+  ensureViewport();
+  var Wd = W(), Hh = H(), m = cfg.margin, mt = cfg.marginTop;
   var c = '';
   c += "@font-face{font-family:'Literata';src:url('file:///android_asset/fonts/Literata.ttf');font-weight:200 900;font-style:normal;}";
   c += "@font-face{font-family:'Literata';src:url('file:///android_asset/fonts/Literata-Italic.ttf');font-weight:200 900;font-style:italic;}";
@@ -428,15 +463,15 @@ R.apply = function(cfg){
   c += 'p,li,blockquote,dd{line-height:' + cfg.lineHeight + ' !important;}';
   if (cfg.justify) c += 'p{text-align:justify !important;-webkit-hyphens:auto;hyphens:auto;}';
   c += 'a{color:' + cfg.link + ' !important;}';
-  c += 'img,svg,video{max-width:100% !important;max-height:' + Math.max(80, H - 2*mt - 16) + 'px !important;object-fit:contain;-webkit-column-break-inside:avoid;break-inside:avoid;}';
+  c += 'img,svg,video{max-width:100% !important;max-height:' + Math.max(80, Hh - 2*mt - 16) + 'px !important;object-fit:contain;-webkit-column-break-inside:avoid;break-inside:avoid;}';
   c += 'img{height:auto !important;} pre{white-space:pre-wrap !important;} table{max-width:100% !important;}';
   c += '*{max-width:100%;box-sizing:border-box;}';
   if (cfg.scroll) {
     c += 'html{overflow-x:hidden !important;overflow-y:auto !important;height:auto !important;width:auto !important;}';
     c += 'body{margin:0 !important;padding:' + mt + 'px ' + m + 'px ' + (mt*2) + 'px ' + m + 'px !important;height:auto !important;-webkit-columns:auto !important;columns:auto !important;max-width:none !important;width:auto !important;}';
   } else {
-    c += 'html{height:' + H + 'px !important;width:' + Wd + 'px !important;overflow:hidden !important;margin:0 !important;padding:0 !important;}';
-    c += 'body{margin:0 !important;padding:' + mt + 'px ' + m + 'px !important;box-sizing:border-box !important;height:' + H + 'px !important;max-width:none !important;width:' + Wd + 'px !important;min-width:0 !important;' +
+    c += 'html{height:' + Hh + 'px !important;width:' + Wd + 'px !important;overflow:hidden !important;margin:0 !important;padding:0 !important;}';
+    c += 'body{margin:0 !important;padding:' + mt + 'px ' + m + 'px !important;box-sizing:border-box !important;height:' + Hh + 'px !important;max-width:none !important;width:' + Wd + 'px !important;min-width:0 !important;' +
          '-webkit-column-width:' + (Wd - 2*m) + 'px !important;column-width:' + (Wd - 2*m) + 'px !important;' +
          '-webkit-column-gap:' + (2*m) + 'px !important;column-gap:' + (2*m) + 'px !important;column-fill:auto !important;overflow:visible !important;will-change:transform;}';
   }
@@ -503,6 +538,11 @@ R.init = function(t){
   function run(){ if (done) return; done = true; R.jump(t); }
   if (document.fonts && document.fonts.ready) { document.fonts.ready.then(function(){ setTimeout(run, 30); }); setTimeout(run, 400); }
   else setTimeout(run, 60);
+};
+R.setSize = function(w, h){
+  R.vw = w; R.vh = h;
+  var t = R.lastProg; R.apply(R.cfg);
+  setTimeout(function(){ R.goProgression(t); }, 60);
 };
 R.relayout = function(cfg){
   var t = R.progression(); R.apply(cfg || R.cfg);
